@@ -2,53 +2,124 @@ import flet as ft
 from timecode import Timecode
 
 def main(page: ft.Page):
-    # --- Configurações da Janela ---
-    page.title = "Timecode Calculator Pro"
-    page.vertical_alignment = ft.MainAxisAlignment.CENTER
-    page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
-    page.theme_mode = ft.ThemeMode.DARK  # Visual Dark moderno
+    # --- 1. Configuração da Janela (Estilo App Desktop) ---
+    page.title = "TC Calc Station"
     page.window_width = 400
-    page.window_height = 600
+    page.window_height = 700
+    page.bgcolor = "#121212"  # Fundo quase preto
+    page.theme_mode = ft.ThemeMode.DARK
+    page.window_resizable = False
+    page.padding = 20
 
-    # --- Lógica de Cálculo ---
-    def calcular_click(e):
+    # --- 2. Variáveis de Memória ---
+    state = {
+        "buffer": "",       # O que você digita (ex: "1023" -> 00:00:10:23)
+        "stored_tc": None,  # O valor guardado na memória para somar
+        "operation": None,  # "+" ou "-"
+        "reset_screen": False # Flag para limpar a tela no próximo clique
+    }
+
+    # --- 3. Funções Lógicas ---
+    
+    def get_timecode_string(raw_nums):
+        """Transforma '123' em '00:00:01:23'"""
+        if not raw_nums: return "00:00:00:00"
+        padded = raw_nums.zfill(8) # Garante 8 digitos
+        return f"{padded[:2]}:{padded[2:4]}:{padded[4:6]}:{padded[6:]}"
+
+    def update_display(valor=None, cor="#00FFFF"):
+        """Atualiza o visor. Se valor=None, usa o buffer atual."""
+        if valor:
+            display_text.value = valor
+        else:
+            display_text.value = get_timecode_string(state["buffer"])
+        
+        display_text.color = cor
+        page.update()
+
+    def on_digit(e):
+        # Se for evento de teclado, o dado vem diferente
+        digit = e.control.data if hasattr(e, "control") else e
+        
+        # Se acabou de calcular, limpa o buffer para começar novo número
+        if state["reset_screen"]:
+            state["buffer"] = ""
+            state["reset_screen"] = False
+            display_text.color = "#00FFFF" # Volta para Ciano
+
+        # Limite de 8 dígitos
+        if len(state["buffer"]) < 8:
+            state["buffer"] += digit
+            update_display(cor="#00FFFF")
+
+    def on_op(e):
+        op = e.control.data if hasattr(e, "control") else e
         try:
-            # Pega os valores da tela
             fps = fps_dropdown.value
-            tc1_val = tc1_input.value
-            tc2_val = tc2_input.value
-            op = operacao_dropdown.value
-
-            # Cria objetos Timecode
-            t1 = Timecode(fps, tc1_val)
-            t2 = Timecode(fps, tc2_val)
-
-            # Faz a conta
-            if op == "Somar (+)":
-                resultado = t1 + t2
-            else:
-                resultado = t1 - t2
-
-            # Atualiza o resultado na tela
-            result_text.value = str(resultado)
-            result_text.color = "green"  # CORRIGIDO: Usando string
+            current_tc_str = get_timecode_string(state["buffer"])
+            
+            # Guarda o primeiro valor
+            state["stored_tc"] = Timecode(fps, current_tc_str)
+            state["operation"] = op
+            
+            # Prepara tela para o segundo número
+            state["buffer"] = ""
+            state["reset_screen"] = False
+            
+            # Feedback visual (pisca amarelo/laranja)
+            display_text.color = "#FFC107" 
             page.update()
+            
+        except Exception as err:
+            print(f"Erro Op: {err}")
+            update_display("ERRO: FPS", "red")
 
-        except Exception as erro:
-            # Se der erro (ex: formato inválido), avisa o usuário
-            result_text.value = "Erro: Use formato 00:00:00:00"
-            result_text.color = "red"    # CORRIGIDO: Usando string
-            page.update()
+    def on_equal(e):
+        if state["stored_tc"] and state["operation"]:
+            try:
+                fps = fps_dropdown.value
+                current_tc_str = get_timecode_string(state["buffer"])
+                tc2 = Timecode(fps, current_tc_str)
 
-    # --- Elementos Visuais (Widgets) ---
-    
-    # Título
-    header = ft.Text("Timecode Calc", size=30, weight=ft.FontWeight.BOLD)
-    
-    # Input: Frame Rate
+                if state["operation"] == "+":
+                    resultado = state["stored_tc"] + tc2
+                elif state["operation"] == "-":
+                    resultado = state["stored_tc"] - tc2
+
+                # Mostra Resultado (Verde)
+                update_display(str(resultado), "#66BB6A")
+                
+                # Prepara para continuar a conta a partir desse resultado
+                state["buffer"] = str(resultado).replace(":", "")
+                state["stored_tc"] = None
+                state["operation"] = None
+                state["reset_screen"] = True # Próximo digito limpa a tela
+
+            except Exception as err:
+                print(f"Erro Calc: {err}")
+                update_display("ERRO CALC", "red")
+
+    def on_clear(e):
+        state["buffer"] = ""
+        state["stored_tc"] = None
+        state["operation"] = None
+        state["reset_screen"] = False
+        update_display(cor="#00FFFF")
+
+    # --- 4. Interface Gráfica (Layout Industrial) ---
+
+    # Visor
+    display_text = ft.Text(
+        value="00:00:00:00",
+        size=45,
+        font_family="Courier New", # Fonte Monospaced (Estilo Digital)
+        weight=ft.FontWeight.BOLD,
+        color="#00FFFF", # Ciano Neon
+        text_align=ft.TextAlign.RIGHT
+    )
+
+    # Seletor de FPS (Integrado no Visor)
     fps_dropdown = ft.Dropdown(
-        label="Frame Rate",
-        width=300,
         options=[
             ft.dropdown.Option("23.976"),
             ft.dropdown.Option("24"),
@@ -58,58 +129,99 @@ def main(page: ft.Page):
             ft.dropdown.Option("59.94"),
             ft.dropdown.Option("60"),
         ],
-        value="24"
+        value="29.97",
+        width=100,
+        text_size=12,
+        border_color="transparent", # Sem borda pra parecer embutido
+        bgcolor="transparent",
+        color="grey"
     )
 
-    # Input: Timecode 1
-    tc1_input = ft.TextField(label="Timecode A", hint_text="00:00:00:00", width=300, text_align=ft.TextAlign.CENTER)
-
-    # Input: Operação
-    operacao_dropdown = ft.Dropdown(
-        label="Operação",
-        width=300,
-        options=[
-            ft.dropdown.Option("Somar (+)"),
-            ft.dropdown.Option("Subtrair (-)"),
-        ],
-        value="Somar (+)"
+    # Container do Visor (A caixa preta com borda)
+    visor_container = ft.Container(
+        content=ft.Column([
+            ft.Row([ft.Text("FPS:", color="grey", size=12), fps_dropdown], alignment=ft.MainAxisAlignment.END, spacing=0),
+            display_text
+        ], spacing=0),
+        padding=ft.padding.only(left=20, right=20, top=5, bottom=15),
+        bgcolor="#000000",
+        border=ft.border.all(2, "#333333"),
+        border_radius=5,
+        margin=ft.margin.only(bottom=20)
     )
 
-    # Input: Timecode 2
-    tc2_input = ft.TextField(label="Timecode B", hint_text="00:00:00:00", width=300, text_align=ft.TextAlign.CENTER)
+    # Botões
+    def btn_style(text, func, color="#2D2D2D", txt_color="white", wide=False):
+        return ft.Container(
+            content=ft.Text(text, size=20, weight=ft.FontWeight.BOLD, color=txt_color),
+            width=160 if wide else 75, # Se for largo ocupa 2 espaços
+            height=65,
+            bgcolor=color,
+            border_radius=8,
+            on_click=func,
+            data=text,
+            alignment=ft.alignment.center,
+            ink=True,
+            border=ft.border.all(1, "#3E3E3E") 
+        )
 
-    # Botão de Calcular
-    calc_btn = ft.ElevatedButton(text="CALCULAR", on_click=calcular_click, width=300, height=50)
+    # Grid de Botões
+    teclado = ft.Column([
+        ft.Row([
+            btn_style("CLEAR", on_clear, color="#B71C1C", wide=True), # Vermelho Escuro
+            btn_style("-", on_op, color="#004D40", txt_color="#00FFFF"), # Verde Petroleo
+            btn_style("+", on_op, color="#004D40", txt_color="#00FFFF"),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        
+        ft.Row([
+            btn_style("7", on_digit), btn_style("8", on_digit), btn_style("9", on_digit),
+            btn_style("00", on_digit) 
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+        
+        ft.Row([
+            btn_style("4", on_digit), btn_style("5", on_digit), btn_style("6", on_digit),
+            btn_style("ENTER", on_equal, color="#1B5E20", txt_color="#69F0AE")
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
 
-    # Área de Resultado
-    result_label = ft.Text("Resultado:", size=15)
-    result_text = ft.Text("00:00:00:00", size=40, weight=ft.FontWeight.BOLD)
+        ft.Row([
+            btn_style("1", on_digit), btn_style("2", on_digit), btn_style("3", on_digit),
+            btn_style("0", on_digit),
+        ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN),
+    ], spacing=10)
 
-    # --- Montagem da Tela ---
-    container = ft.Container(
-        content=ft.Column(
-            [
-                header,
-                ft.Divider(),
-                fps_dropdown,
-                tc1_input,
-                operacao_dropdown,
-                tc2_input,
-                ft.Divider(),
-                calc_btn,
-                ft.Divider(),
-                result_label,
-                result_text
-            ],
-            alignment=ft.MainAxisAlignment.CENTER,
-            horizontal_alignment=ft.CrossAxisAlignment.CENTER,
-            spacing=15
-        ),
-        padding=30,
-        bgcolor="surfaceVariant", # CORRIGIDO: Usando string
-        border_radius=20,
+    # --- 5. Eventos de Teclado Físico ---
+    def on_keyboard(e: ft.KeyboardEvent):
+        if e.key in ["0","1","2","3","4","5","6","7","8","9"]:
+            # Simula envio direto do digito
+            on_digit(e.key)
+        elif e.key == "+":
+            # Cria fake object para operador
+            fake_e = type('',(object,),{"control": type('',(object,),{"data": "+"})()})()
+            on_op(fake_e)
+        elif e.key == "-":
+            fake_e = type('',(object,),{"control": type('',(object,),{"data": "-"})()})()
+            on_op(fake_e)
+        elif e.key == "Enter" or e.key == "=":
+            on_equal(None)
+        elif e.key == "Backspace" or e.key == "Delete" or e.key == "Escape":
+            on_clear(None)
+
+    page.on_keyboard_event = on_keyboard
+
+    # Montagem Final
+    layout_principal = ft.Container(
+        content=ft.Column([
+            ft.Text("TIMECODE PRO", color="#444", weight=ft.FontWeight.BOLD, size=12),
+            visor_container,
+            teclado
+        ]),
+        padding=20,
+        border_radius=15,
+        bgcolor="#1E1E1E", # Corpo da calculadora
+        border=ft.border.all(1, "#333333"),
+        shadow=ft.BoxShadow(blur_radius=50, color="#000000")
     )
 
-    page.add(container)
+    page.add(layout_principal)
 
 ft.app(target=main)
